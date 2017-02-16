@@ -1,8 +1,8 @@
 Trabsferir archivos:
-scp file.txt alumno@155.54.225.3 :/home/alumno
+scp file.txt alumno@155.54.225.3:/home/alumno
 
-scp web_sstt.c alumno@155.54.225.5 :/home/alumno  	pc -> virtual
-scp  alumno@192.168.56.102:/home/alumno/web_sstt.c .	virtual -> pc
+scp web_sstt.c alejandro@192.168.1.53:/home/alejandro 	pc -> virtual
+scp alumno@192.168.56.102:/home/alumno/web_sstt.c 	virtual -> pc
 
 
 http://192.168.56.102:9001/
