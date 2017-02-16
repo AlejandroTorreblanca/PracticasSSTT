@@ -10,12 +10,12 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define VERSION		24
-#define BUFSIZE		8096
-#define ERROR		42
-#define LOG		44
-#define PROHIBIDO	403
-#define NOENCONTRADO	404
+#define VERSION	24
+#define BUFSIZE	8096
+#define ERROR 42
+#define LOG	44
+#define PROHIBIDO 403
+#define NOENCONTRADO 404
 
 
 struct {
@@ -67,22 +67,62 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 void process_web_request(int descriptorFichero)
 {
 	
-	char cabecera1[]= "HTTP/1.1 200 OK\r\n DATE: Sun,26 Sep 2010 20:09:20 GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified: Tue, 30 Oct 2007 17:00:02 GMT\r\nETag: \"17dc6-a5c-bf7127272\"\r\nAccept-Ranges: bytes\r\nContent-Length: \r\nKeep-Alive: timeout=10, max=100\r\nConnection: Keep-Alive\r\nContent-Type: text/html; charset=ISO-8859-1\r\n\r\n";
-
-
-
+	char cabecera[]= "HTTP/1.1 200 OK\r\n DATE: Sun,26 Sep 2010 20:09:20 GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified: Tue, 30 Oct 2007 17:00:02 GMT\r\nETag: \"17dc6-a5c-bf7127272\"\r\nAccept-Ranges: bytes\r\nContent-Length: \r\nKeep-Alive: timeout=10, max=100\r\nConnection: Keep-Alive\r\nContent-Type: text/html; charset=ISO-8859-1\r\n\r\n";
 
 	debug(LOG,"request","Ha llegado una peticion",descriptorFichero);
-	char buffer[256];
+
+	char buffer[BUFSIZE];
 	int flags=fcntl(descriptorFichero, F_GETFL, 0);
 	fcntl(descriptorFichero, F_SETFL, flags|O_NONBLOCK);
 	int leido=read(descriptorFichero,buffer,BUFSIZE);
-	printf("Leido:\n %s", buffer);
-	while(leido!=-1)
+    int control=1;
+    fprintf (stderr,"Comenzamos. Hemos leido:\n %s", buffer);
+    char linea[1024];
+	char get[1024];
+	char * aux;
+	char * aux2;
+	int posicion;
+	int i=0;
+    int g=0;
+    char* array[10];
+	while((leido!=-1))
 	{
+        fprintf (stderr,"Leemos.\n");
+        if(control==0)
+        {
+            fprintf (stderr,"entro al bucle.\n");
+            aux = strtok(buffer,"\r\n");
+	        while (aux != NULL)
+          	{
+		        memset(linea, '\0', sizeof(linea));
+		        strcpy(linea,aux);
+		        array[i]=&linea[0];
+		        aux2=strstr(aux,"GET");
+		        if(aux2!=NULL)
+		        {
+			        strcpy(get,linea);
+                    if(g=0)
+                        g++;
+                    else control=0;
+		        }
+            		fprintf (stderr,"%d: %s\n",i,array[i]);
+            		aux = strtok (NULL, "\r\n");
+		        i++;
+            } 
+        }
 		leido=read(descriptorFichero,buffer,BUFSIZE);
-		printf("%s", buffer);
 	}
+    fprintf (stderr,"get: %s\n",get);
+    int fd;
+    if((fd=open("web.html",O_RDONLY)) >= 0) 
+	{
+        fprintf (stderr,"Respuesta.\n");
+		leido=read(fd,buffer,BUFSIZE);
+		write(descriptorFichero,cabecera,strlen(cabecera));
+        write(descriptorFichero,buffer,strlen(buffer));
+	}
+    close(fd);
+   
 	
 	//
 	// Definir buffer y variables necesarias para leer las peticiones
@@ -140,7 +180,6 @@ void process_web_request(int descriptorFichero)
 	//
 	
 	close(descriptorFichero);
-	printf("Finalizamos conexion");
 	exit(1);
 }
 
