@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <time.h>
 
 #define VERSION	24
 #define BUFSIZE	8096
@@ -22,16 +23,16 @@ struct {
 	char *ext;
 	char *filetype;
 } extensions [] = {
-	{"gif", "image/gif" },
-	{"jpg", "image/jpg" },
-	{"jpeg","image/jpeg"},
-	{"png", "image/png" },
-	{"ico", "image/ico" },
-	{"zip", "image/zip" },
-	{"gz",  "image/gz"  },
-	{"tar", "image/tar" },
-	{"htm", "text/html" },
-	{"html","text/html" },
+	{".gif", "image/gif" },
+	{".jpg", "image/jpg" },
+	{".jpeg","image/jpeg"},
+	{".png", "image/png" },
+	{".ico", "image/ico" },
+	{".zip", "image/zip" },
+	{".gz",  "image/gz"  },
+	{".tar", "image/tar" },
+	{".htm", "text/html" },
+	{".html","text/html" },
 	{0,0} };
 
 void debug(int log_message_type, char *message, char *additional_info, int socket_fd)
@@ -61,20 +62,89 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 	if(log_message_type == ERROR || log_message_type == NOENCONTRADO || log_message_type == PROHIBIDO) exit(3);
 }
 
+//Creamos la cabecera del mensaje de respuesta.
+char * crearCabecera(char * nombreArchivo)
+{
+    //Obtenemos la fecha actual
+    time_t tiempo = time(0);
+    struct tm *tlocal = localtime(&tiempo);
+    char fecha[128];
+    strftime(fecha,128,"%a,%d %b %Y %H:%M:%S",tlocal);
+    
+    //Obtenemos la fecha de la ultima modificación del archivo.
+    struct stat sb;
+    if (stat(nombreArchivo, &sb) == -1) {
+        perror("stat");
+        exit(EXIT_FAILURE);
+    }
+    char * aux=ctime(&sb.st_mtime);
+    char * modificado = strtok(aux,"\n");
 
+    //Obtenemos el Tamaño del archivo.
+    char tam[20];
+    sprintf(tam, "%lld", (long long) sb.st_size);
+
+    //Obtenemos el tipo del archivo.
+    char * extension=strchr(nombreArchivo,'.');
+	int i=0;
+	int control=0;
+	while((control==0) && (i<9))
+	{
+		if(strcmp(extension,extensions[i].ext)==0)
+			control=1;
+		else i++;
+	}
+    
+    //Los siguientes datos son fijos.
+    char cabecera1[BUFSIZE-1]= "HTTP/1.1 200 OK\r\nDATE :";
+    char cabecera2[]=" GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified :";
+    char cabecera3[]=" GMT\r\nETag: \"17dc6-a5c-bf7127272\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
+    char cabecera4[]="\r\nKeep-Alive: timeout=10, max=100\r\nConnection: Keep-Alive\r\nContent-Type:"; 
+    char cabecera5[]="; charset=ISO-8859-1\r\n\r\n";
+    
+    //Concatenamos todos los strings.
+	strcat(cabecera1,fecha);
+	strcat(cabecera1,cabecera2);
+	strcat(cabecera1,modificado);
+	strcat(cabecera1,cabecera3);
+	strcat(cabecera1,tam);
+	strcat(cabecera1,cabecera4);
+	strcat(cabecera1,extensions[i].filetype);
+	strcat(cabecera1,cabecera5);
+	return cabecera1;
+ 
+}
+
+//Creamos y enviamos por el socket el mensaje http response.
+void sendResponse(char * nombreArchivo, int descriptorFichero)
+{
+    char buffer[BUFSIZE];
+    int fd;
+    if((fd=open(nombreArchivo,O_RDONLY)) >= 0) 
+	{
+        char * cabecera=crearCabecera(nombreArchivo);
+        write(descriptorFichero,cabecera,strlen(cabecera));
+		leido=read(fd,buffer,BUFSIZE);        
+        while(leido!=0)
+        {	    
+            write(descriptorFichero,buffer,strlen(buffer));
+            leido=read(fd,buffer,BUFSIZE);
+        }
+	}
+    close(fd);
+}
 
 
 void process_web_request(int descriptorFichero)
 {
-	
-	char cabecera[]= "HTTP/1.1 200 OK\r\n DATE: Sun,26 Sep 2010 20:09:20 GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified: Tue, 30 Oct 2007 17:00:02 GMT\r\nETag: \"17dc6-a5c-bf7127272\"\r\nAccept-Ranges: bytes\r\nContent-Length: \r\nKeep-Alive: timeout=10, max=100\r\nConnection: Keep-Alive\r\nContent-Type: text/html; charset=ISO-8859-1\r\n\r\n";
-
 	debug(LOG,"request","Ha llegado una peticion",descriptorFichero);
 
 	char buffer[BUFSIZE];
 	int flags=fcntl(descriptorFichero, F_GETFL, 0);
 	fcntl(descriptorFichero, F_SETFL, flags|O_NONBLOCK);
-	int leido=read(descriptorFichero,buffer,BUFSIZE);
+    int leido=read(descriptorFichero,buffer,BUFSIZE);
+	while(leido<=0)
+        leido=read(descriptorFichero,buffer,BUFSIZE);
     int control=1;
     fprintf (stderr,"Comenzamos. Hemos leido:\n %s", buffer);
     char linea[1024];
@@ -113,15 +183,9 @@ void process_web_request(int descriptorFichero)
 		leido=read(descriptorFichero,buffer,BUFSIZE);
 	}
     fprintf (stderr,"get: %s\n",get);
-    int fd;
-    if((fd=open("web.html",O_RDONLY)) >= 0) 
-	{
-        fprintf (stderr,"Respuesta.\n");
-		leido=read(fd,buffer,BUFSIZE);
-		write(descriptorFichero,cabecera,strlen(cabecera));
-        write(descriptorFichero,buffer,strlen(buffer));
-	}
-    close(fd);
+   
+    
+    
    
 	
 	//
