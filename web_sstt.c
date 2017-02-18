@@ -19,6 +19,7 @@
 #define NOENCONTRADO 404
 
 
+
 struct {
 	char *ext;
 	char *filetype;
@@ -83,24 +84,26 @@ char * crearCabecera(char * nombreArchivo)
     //Obtenemos el Tamaño del archivo.
     char tam[20];
     sprintf(tam, "%lld", (long long) sb.st_size);
-
     //Obtenemos el tipo del archivo.
     char * extension=strchr(nombreArchivo,'.');
 	int i=0;
 	int control=0;
-	while((control==0) && (i<9))
+	while((control==0) && (i<10))
 	{
 		if(strcmp(extension,extensions[i].ext)==0)
 			control=1;
 		else i++;
 	}
-    
+	if (i==10) {
+        perror("Extensión no compatible.");
+        exit(EXIT_FAILURE);
+    }
     //Los siguientes datos son fijos.
-    char cabecera1[BUFSIZE-1]= "HTTP/1.1 200 OK\r\nDATE :";
-    char cabecera2[]=" GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified :";
-    char cabecera3[]=" GMT\r\nETag: \"17dc6-a5c-bf7127272\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
-    char cabecera4[]="\r\nKeep-Alive: timeout=10, max=100\r\nConnection: Keep-Alive\r\nContent-Type:"; 
-    char cabecera5[]="; charset=ISO-8859-1\r\n\r\n";
+    char cabecera1[BUFSIZE]= "HTTP/1.1 200 OK\r\nDATE :";
+    char * cabecera2=" GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified :";
+    char * cabecera3=" GMT\r\nETag: \"17dc6-a5c-bf7127272\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
+    char * cabecera4="\r\nKeep-Alive: timeout=10, max=100\r\nConnection: Keep-Alive\r\nContent-Type:"; 
+    char * cabecera5="; charset=ISO-8859-1\r\n\r\n";
     
     //Concatenamos todos los strings.
 	strcat(cabecera1,fecha);
@@ -111,7 +114,8 @@ char * crearCabecera(char * nombreArchivo)
 	strcat(cabecera1,cabecera4);
 	strcat(cabecera1,extensions[i].filetype);
 	strcat(cabecera1,cabecera5);
-	return cabecera1;
+	char * cabeceraRespuesta=&cabecera1[0];
+	return cabeceraRespuesta;
  
 }
 
@@ -119,35 +123,57 @@ char * crearCabecera(char * nombreArchivo)
 void sendResponse(char * nombreArchivo, int descriptorFichero)
 {
     char buffer[BUFSIZE];
-    int fd;
-    if((fd=open(nombreArchivo,O_RDONLY)) >= 0) 
+	int a=0;
+    int fd=open(nombreArchivo,O_RDONLY);
+	if(fd >= 0) 
 	{
-        char * cabecera=crearCabecera(nombreArchivo);
-        write(descriptorFichero,cabecera,strlen(cabecera));
-		leido=read(fd,buffer,BUFSIZE);        
+		//fprintf(stderr,"fd: %d\n", fd);
+        char * cabeceraRespuesta=crearCabecera(nombreArchivo);
+		fprintf(stderr,"\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
+        write(descriptorFichero,cabeceraRespuesta,strlen(cabeceraRespuesta));
+		int leido=read(fd,buffer,BUFSIZE);        
         while(leido!=0)
-        {	    
+        {	   
             write(descriptorFichero,buffer,strlen(buffer));
             leido=read(fd,buffer,BUFSIZE);
         }
 	}
+	else
+	{
+	 	perror("open");
+     	exit(EXIT_FAILURE);
+	}
+
     close(fd);
 }
 
+char * obtenerNombre(char * cadena)
+{
+    char buffer[BUFSIZE];
+	char * aux;
+	char * aux2;
+	strcpy(buffer,cadena);
+	aux = strtok(buffer,"/");
+	aux2 = strtok (NULL, "/");
+	if(strcmp(aux2," HTTP")==0) 
+    {
+        char * respuesta="index.html";
+        return respuesta;
+    }
+	else 
+	{
+		strcpy(buffer,aux2);
+		aux = strtok(buffer," ");
+        return aux;
+	}
+}
 
 void process_web_request(int descriptorFichero)
 {
 	debug(LOG,"request","Ha llegado una peticion",descriptorFichero);
 
 	char buffer[BUFSIZE];
-	int flags=fcntl(descriptorFichero, F_GETFL, 0);
-	fcntl(descriptorFichero, F_SETFL, flags|O_NONBLOCK);
-    int leido=read(descriptorFichero,buffer,BUFSIZE);
-	while(leido<=0)
-        leido=read(descriptorFichero,buffer,BUFSIZE);
-    int control=1;
-    fprintf (stderr,"Comenzamos. Hemos leido:\n %s", buffer);
-    char linea[1024];
+	char linea[1024];
 	char get[1024];
 	char * aux;
 	char * aux2;
@@ -155,12 +181,19 @@ void process_web_request(int descriptorFichero)
 	int i=0;
     int g=0;
     char* array[10];
-	while((leido!=-1))
+	int control=1;
+    fprintf (stderr,"LLega un nuevo mensaje por un socket\n");
+	int flags=fcntl(descriptorFichero, F_GETFL, 0);
+	fcntl(descriptorFichero, F_SETFL, flags|O_NONBLOCK);
+    int leido=read(descriptorFichero,buffer,BUFSIZE);
+	while(leido<=0)
+        leido=read(descriptorFichero,buffer,BUFSIZE);    
+    //fprintf (stderr,"Hemos leido:\n %s", buffer);   
+	while((leido>0))
 	{
-        fprintf (stderr,"Leemos.\n");
-        if(control==0)
+        fprintf (stderr,"Hemos leido:\n %s", buffer);
+        if(control==1)
         {
-            fprintf (stderr,"entro al bucle.\n");
             aux = strtok(buffer,"\r\n");
 	        while (aux != NULL)
           	{
@@ -175,15 +208,17 @@ void process_web_request(int descriptorFichero)
                         g++;
                     else control=0;
 		        }
-            		fprintf (stderr,"%d: %s\n",i,array[i]);
-            		aux = strtok (NULL, "\r\n");
+            	//fprintf (stderr,"%d: %s\n",i,array[i]);
+            	aux = strtok (NULL, "\r\n");
 		        i++;
             } 
         }
 		leido=read(descriptorFichero,buffer,BUFSIZE);
 	}
-    fprintf (stderr,"get: %s\n",get);
-   
+    //fprintf (stderr,"Get: %s\n",get);
+    char * nombreArchivo=obtenerNombre(get);
+    //fprintf (stderr,"Nombre de archivo: %s\n",nombreArchivo);
+   	sendResponse(nombreArchivo,descriptorFichero);
     
     
    
