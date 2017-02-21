@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <time.h>
 
@@ -66,7 +67,7 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 }
 
 //Creamos la cabecera del mensaje de respuesta.
-char * crearCabecera(char * nombreArchivo, int n)
+char * crearCabecera(char * nombreArchivo)
 {
     //Obtenemos la fecha actual
     time_t tiempo = time(0);
@@ -76,7 +77,7 @@ char * crearCabecera(char * nombreArchivo, int n)
     
     //Obtenemos la fecha de la ultima modificación del archivo.
     struct stat sb;
-    if (stat(nombreArchivo, &sb) == -1) {
+    if (stat(nombreArchivo, &sb)== -1) {
         perror("stat");
         exit(EXIT_FAILURE);
     }
@@ -107,70 +108,28 @@ char * crearCabecera(char * nombreArchivo, int n)
     //Los siguientes datos son fijos.
     char cabecera1[BUFSIZE]= "HTTP/1.1";
 	char * cabeceraOK=" 200 OK\r\nDATE :";
-	char * cabeceraPC=" 206 Partial Content\r\nDATE :";
     char * cabecera2=" GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified :";
     char * cabecera3=" GMT\r\nETag: \"";
 	char * cabecera4="\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
-    char * cabecera5="\r\nKeep-Alive: timeout=10, max=100\r\nConnection: Keep-Alive\r\nContent-Type:"; 
+    char * cabecera5="\r\nConnection: Close\r\nContent-Type:"; 
     char * cabecera6="; charset=ISO-8859-1\r\n\r\n";
     
     //Concatenamos todos los strings.
-	if(sb.st_size<TAMMAX)	//Se puede enviar todo el archivo en un solo mensaje.
-	{	
-	 	strcat(cabecera1,cabeceraOK);
-		strcat(cabecera1,fecha);
-		strcat(cabecera1,cabecera2);
-		strcat(cabecera1,modificado);
-		strcat(cabecera1,cabecera3);
-		strcat(cabecera1,nombreArchivo);
-		strcat(cabecera1,cabecera4);
-		strcat(cabecera1,tam);
-		strcat(cabecera1,cabecera5);
-		strcat(cabecera1,extensions[i].filetype);
-		strcat(cabecera1,cabecera6);
-		char * cabeceraRespuesta=&cabecera1[0];
-		return cabeceraRespuesta;
-	}
-	else	//Debemos realizar el envio por trozos.
-	{
-		char t[100];
-		int aux;
-		strcat(cabecera1,cabeceraPC);
-		strcat(cabecera1,fecha);
-		strcat(cabecera1,cabecera2);
-		strcat(cabecera1,modificado);
-		strcat(cabecera1,cabecera3);
-		strcat(cabecera1,nombreArchivo);
-		strcat(cabecera1,cabecera4);
-		int taux=TAMMAX;
-		if((sb.st_size-(n-1)*TAMMAX)>TAMMAX)
-		{
-			sprintf(t, "%d", TAMMAX);
-			strcat(cabecera1,t);			
-		}
-		else
-		{
-			taux=(sb.st_size-(n-1)*TAMMAX);
-			sprintf(t, "%d", taux);
-			strcat(cabecera1,t);
-		}
-		char * cabecera7="\r\nContent-Range: bytes ";
-		strcat(cabecera1,cabecera7);
-		aux=TAMMAX*(n-1);
-		sprintf(t, "%d",aux);
-		strcat(cabecera1,t);
-		strcat(cabecera1,"-");
-		aux=TAMMAX*(n-1)+taux-1;
-		sprintf(t, "%d", aux);
-		strcat(cabecera1,t);
-		strcat(cabecera1,"/");
-		strcat(cabecera1,tam);
-		char * cabecera8="\r\nContent-Type:";
-		strcat(cabecera1,cabecera8);
-		strcat(cabecera1,extensions[i].filetype);
-		char * cabeceraRespuesta=&cabecera1[0];
-		return cabeceraRespuesta;	
-	}
+		
+	strcat(cabecera1,cabeceraOK);
+	strcat(cabecera1,fecha);
+	strcat(cabecera1,cabecera2);
+	strcat(cabecera1,modificado);
+	strcat(cabecera1,cabecera3);
+	strcat(cabecera1,nombreArchivo);
+	strcat(cabecera1,cabecera4);
+	strcat(cabecera1,tam);
+	strcat(cabecera1,cabecera5);
+	strcat(cabecera1,extensions[i].filetype);
+	strcat(cabecera1,cabecera6);
+	char * cabeceraRespuesta=&cabecera1[0];
+	return cabeceraRespuesta;
+	
 }
 
 //Creamos y enviamos por el socket el mensaje http response.
@@ -183,51 +142,23 @@ void sendResponse(char * nombreArchivo, int descriptorFichero)
 	if(fd >= 0) 
 	{
 		//fprintf(stderr,"fd: %d\n", fd);
-        char * cabeceraRespuesta=crearCabecera(nombreArchivo,1);
+        char * cabeceraRespuesta=crearCabecera(nombreArchivo);
 		fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
 		int escritos=write(descriptorFichero,cabeceraRespuesta,strlen(cabeceraRespuesta));
 		int totalcabecera=escritos;
-		int leido;
-		if(tamArchivo<=TAMMAX)
-		{		
-			leido=read(fd,buffer,BUFSIZE);        
-		    while(leido!=0)
-		    {	   
-		        escritos=write(descriptorFichero,buffer,leido);
-				total+=escritos;
-		        leido=read(fd,buffer,BUFSIZE);
-		    }
-		}
-		else
-		{
-			int numMensajes=tamArchivo/TAMMAX;
-			if(tamArchivo%TAMMAX!=0)
-				numMensajes++;
-			int numLecturas=TAMMAX/BUFSIZE;
-			leido=read(fd,buffer,BUFSIZE);
-			int i;
-			int j;
-			for(i=1; i<=numMensajes;i++)
+		int leido,total;		
+		leido=read(fd,buffer,BUFSIZE);        
+		while(leido!=0)
+		{	   
+		    escritos=write(descriptorFichero,buffer,leido);
+			total=BUFSIZE;
+			while(escritos!=total)
 			{
-				if(i!=1)
-				{
-					cabeceraRespuesta=crearCabecera(nombreArchivo,i);
-					fprintf(stderr,"\n**********\nPartimos archivo,cabecera: \n%s\n**********\n",cabeceraRespuesta);
-					escritos=write(descriptorFichero,cabeceraRespuesta,strlen(cabeceraRespuesta));
-					fprintf(stderr," Enviado: cabecera %d\n",escritos);
-				}
-				for(j=0; j<numLecturas;j++)
-				{
-					if(leido!=0)
-					{
-						escritos=write(descriptorFichero,buffer,leido);
-						total+=escritos;
-						leido=read(fd,buffer,BUFSIZE);
-					}
-				}
+				escritos+=write(descriptorFichero,buffer+escritos,total-escritos);		
+				
 			}
+		    leido=read(fd,buffer,BUFSIZE);
 		}
-		fprintf(stderr," Enviado: cabecera %d,  cuerpo %d\n\n",totalcabecera,total);
 	}
 	else
 	{
