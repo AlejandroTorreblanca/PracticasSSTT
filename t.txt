@@ -1,4 +1,4 @@
-<HTML>
+L>
 
 <HEAD>
 
@@ -11,7 +11,7 @@
 <!-- Aqui va todo lo chachi -->
 
 <H1>Parece que esto funciona....... </H1>
-<P> <IMG SRC= "./imagen5.gif "ALIGN= "MIDDLE " ALT= "gif ">
+<P> <IMG SRC= "./imagen.gif "ALIGN= "MIDDLE " ALT= "gif ">
 
 
 

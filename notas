@@ -8,10 +8,5 @@ scp alumno@192.168.56.102:/home/alumno/web_sstt.c 	virtual -> pc
 http://192.168.56.102:9001/
 
 
-<P> <IMG SRC= "./imagen.gif "ALIGN= "MIDDLE " ALT= ".gif ">
-<P> <IMG SRC= "./imagen3.png "ALIGN= "MIDDLE " ALT= ".png ">
-<P> <IMG SRC= "./imagen2.jpg "ALIGN= "MIDDLE " ALT= ".jpg ">
-
-
-Range: bytes=109500-
-If-Range: "17dc6-a5c-bf7127272"
+dudas:
+error write: Resource temporarily unavailable, tratamiento?

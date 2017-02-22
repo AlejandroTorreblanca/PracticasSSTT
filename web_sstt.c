@@ -67,8 +67,9 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 }
 
 //Creamos la cabecera del mensaje de respuesta.
-char * crearCabecera(char * nombreArchivo)
+char * crearCabecera(char * nombreArchivo, int n)
 {
+	
     //Obtenemos la fecha actual
     time_t tiempo = time(0);
     struct tm *tlocal = localtime(&tiempo);
@@ -103,19 +104,28 @@ char * crearCabecera(char * nombreArchivo)
         perror("Extensión no compatible.");
         exit(EXIT_FAILURE);
     }
-
 	
+	//Calculamos la fecha de expiración de la cookie y el id.
+	char fechaCookie1[128];
+	char id[20];
+    sprintf(id, "%d",n);
+	time_t tiempo2 = time(0);
+	tiempo2+=864000;				//Le suamamos los segudnos de diez días.
+    struct tm *tlocal2 = localtime(&tiempo2);
+    strftime(fechaCookie1,128,"%a,%d %b %Y %H:%M:%S GTM;\r\n\r\n",tlocal2);
+
     //Los siguientes datos son fijos.
     char cabecera1[BUFSIZE]= "HTTP/1.1";
 	char * cabeceraOK=" 200 OK\r\nDATE :";
+	char * cabeceraPC=" 206 Partial Content\r\nDATE :";
     char * cabecera2=" GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified :";
     char * cabecera3=" GMT\r\nETag: \"";
 	char * cabecera4="\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
-    char * cabecera5="\r\nConnection: Close\r\nContent-Type:"; 
-    char * cabecera6="; charset=ISO-8859-1\r\n\r\n";
+    char * cabecera5="\r\nKeep-Alive: Close\r\nContent-Type:"; 
+    char * cabecera6="; charset=ISO-8859-1\r\nSet-Cookie: id:";
+	char * cabecera7="; Expires=";
     
     //Concatenamos todos los strings.
-		
 	strcat(cabecera1,cabeceraOK);
 	strcat(cabecera1,fecha);
 	strcat(cabecera1,cabecera2);
@@ -127,38 +137,51 @@ char * crearCabecera(char * nombreArchivo)
 	strcat(cabecera1,cabecera5);
 	strcat(cabecera1,extensions[i].filetype);
 	strcat(cabecera1,cabecera6);
-	char * cabeceraRespuesta=&cabecera1[0];
+	strcat(cabecera1,id);
+	strcat(cabecera1,cabecera7);
+	strcat(cabecera1,fechaCookie1);
+	char * cabeceraRespuesta=malloc(sizeof(char)*BUFSIZE);
+	strcpy(cabeceraRespuesta,&cabecera1[0]);
 	return cabeceraRespuesta;
-	
 }
 
 //Creamos y enviamos por el socket el mensaje http response.
 void sendResponse(char * nombreArchivo, int descriptorFichero)
 {
     int buffer[BUFSIZE];
-	int a=0;
 	int total=0;
     int fd=open(nombreArchivo,O_RDONLY);
 	if(fd >= 0) 
 	{
 		//fprintf(stderr,"fd: %d\n", fd);
-        char * cabeceraRespuesta=crearCabecera(nombreArchivo);
+        char * cabeceraRespuesta=crearCabecera(nombreArchivo,1);
 		fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
 		int escritos=write(descriptorFichero,cabeceraRespuesta,strlen(cabeceraRespuesta));
 		int totalcabecera=escritos;
-		int leido,total;		
-		leido=read(fd,buffer,BUFSIZE);        
+		int leido=read(fd,buffer,BUFSIZE);      
 		while(leido!=0)
 		{	   
 		    escritos=write(descriptorFichero,buffer,leido);
-			total=BUFSIZE;
-			while(escritos!=total)
+			if (escritos>0)
 			{
-				escritos+=write(descriptorFichero,buffer+escritos,total-escritos);		
+				while(escritos<leido)
+				{
+					fprintf(stderr,"Escritura parcial, leidos: %d, escritos: %d\n",leido,escritos);
+					int aux=escritos/4;
+					int escritosAux=write(descriptorFichero,buffer+aux,leido-escritos);	
+					if(escritosAux>0)
+					{
+					 	escritos+=escritosAux;	
+					}				
 				
+				} 
+				total+=escritos;
+		    	leido=read(fd,buffer,BUFSIZE);	
 			}
-		    leido=read(fd,buffer,BUFSIZE);
+			
+			
 		}
+		fprintf(stderr,"Escritura completada, escritos: %d\n\n",total);
 	}
 	else
 	{
