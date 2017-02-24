@@ -67,7 +67,7 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 }
 
 //Creamos la cabecera del mensaje de respuesta.
-char * crearCabecera(char * nombreArchivo, int n)
+char * crearCabecera(char * nombreArchivo, int id)
 {
 	
     //Obtenemos la fecha actual
@@ -105,14 +105,7 @@ char * crearCabecera(char * nombreArchivo, int n)
         exit(EXIT_FAILURE);
     }
 	
-	//Calculamos la fecha de expiración de la cookie y el id.
-	char fechaCookie1[128];
-	char id[20];
-    sprintf(id, "%d",n);
-	time_t tiempo2 = time(0);
-	tiempo2+=864000;				//Le suamamos los segudnos de diez días.
-    struct tm *tlocal2 = localtime(&tiempo2);
-    strftime(fechaCookie1,128,"%a,%d %b %Y %H:%M:%S GTM;\r\n\r\n",tlocal2);
+	
 
     //Los siguientes datos son fijos.
     char cabecera1[BUFSIZE]= "HTTP/1.1";
@@ -122,8 +115,8 @@ char * crearCabecera(char * nombreArchivo, int n)
     char * cabecera3=" GMT\r\nETag: \"";
 	char * cabecera4="\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
     char * cabecera5="\r\nKeep-Alive: Close\r\nContent-Type:"; 
-    char * cabecera6="; charset=ISO-8859-1\r\nSet-Cookie: id:";
-	char * cabecera7="; Expires=";
+    char * cabecera6="; charset=ISO-8859-1\r\n";
+	char * cabecera7="Set-Cookie: id:";
     
     //Concatenamos todos los strings.
 	strcat(cabecera1,cabeceraOK);
@@ -137,24 +130,40 @@ char * crearCabecera(char * nombreArchivo, int n)
 	strcat(cabecera1,cabecera5);
 	strcat(cabecera1,extensions[i].filetype);
 	strcat(cabecera1,cabecera6);
-	strcat(cabecera1,id);
-	strcat(cabecera1,cabecera7);
-	strcat(cabecera1,fechaCookie1);
+	
+	
+	if(id!=0)
+	{
+	//Calculamos la fecha de expiración de la cookie y el id.
+		char fechaCookie1[128];
+		char cadenaID[20];
+		sprintf(cadenaID, "%d",id);
+		time_t tiempo2 = time(0);
+		tiempo2+=864000;				//Le suamamos los segundos de diez días.
+		struct tm *tlocal2 = localtime(&tiempo2);
+		strftime(fechaCookie1,128,"; Expires=%a,%d %b %Y %H:%M:%S GTM;\r\n\r\n",tlocal2);
+	
+		strcat(cabecera1,cabecera7);
+		strcat(cabecera1,cadenaID);
+		strcat(cabecera1,fechaCookie1);
+	}
+	else 
+		strcat(cabecera1,"\r\n");
+
 	char * cabeceraRespuesta=malloc(sizeof(char)*BUFSIZE);
 	strcpy(cabeceraRespuesta,&cabecera1[0]);
 	return cabeceraRespuesta;
 }
 
 //Creamos y enviamos por el socket el mensaje http response.
-void sendResponse(char * nombreArchivo, int descriptorFichero)
+void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
 {
     int buffer[BUFSIZE];
 	int total=0;
     int fd=open(nombreArchivo,O_RDONLY);
 	if(fd >= 0) 
 	{
-		//fprintf(stderr,"fd: %d\n", fd);
-        char * cabeceraRespuesta=crearCabecera(nombreArchivo,1);
+        char * cabeceraRespuesta=crearCabecera(nombreArchivo,id);
 		fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
 		int escritos=write(descriptorFichero,cabeceraRespuesta,strlen(cabeceraRespuesta));
 		int totalcabecera=escritos;
@@ -188,7 +197,6 @@ void sendResponse(char * nombreArchivo, int descriptorFichero)
 	 	perror("open");
      	exit(EXIT_FAILURE);
 	}
-
     close(fd);
 }
 
@@ -214,6 +222,17 @@ char * obtenerNombre(char * cadena)
 	}
 }
 
+int obtenerID(char * cadena)
+{
+	char buffer[BUFSIZE];
+	char * aux;
+	strcpy(buffer,cadena);
+	strtok(buffer,":");
+	strtok (NULL, ":");
+	aux= strtok (NULL, ":");
+	return atoi(aux);
+}
+
 void process_web_request(int descriptorFichero)
 {
 	debug(LOG,"request","Ha llegado una peticion",descriptorFichero);
@@ -221,49 +240,65 @@ void process_web_request(int descriptorFichero)
 	char buffer[BUFSIZE];
 	char linea[1024];
 	char get[1024];
+	char cookie[1024];
 	char * aux;
 	char * aux2;
+	char * aux3;
 	int posicion;
 	int i=0;
     int g=0;
     char* array[10];
-	int control=1;
+	int control=0;
 	int flags=fcntl(descriptorFichero, F_GETFL, 0);
 	fcntl(descriptorFichero, F_SETFL, flags|O_NONBLOCK);
     int leido=read(descriptorFichero,buffer,BUFSIZE);
 	while(leido<=0)
         leido=read(descriptorFichero,buffer,BUFSIZE);    
-    //fprintf (stderr,"Hemos leido:\n %s", buffer);   
 	while((leido>0))
 	{
         fprintf (stderr,"Hemos leido:\n %s", buffer);
-        if(control==1)
+
+        aux = strtok(buffer,"\r\n");
+	    while (aux != NULL)
         {
-            aux = strtok(buffer,"\r\n");
-	        while (aux != NULL)
-          	{
-		        memset(linea, '\0', sizeof(linea));
-		        strcpy(linea,aux);
-		        array[i]=&linea[0];
-		        aux2=strstr(aux,"GET");
-		        if(aux2!=NULL)
-		        {
-			        strcpy(get,linea);
-                    if(g=0)
-                        g++;
-                    else control=0;
-		        }
-            	//fprintf (stderr,"%d: %s\n",i,array[i]);
-            	aux = strtok (NULL, "\r\n");
-		        i++;
-            } 
-        }
+			memset(linea, '\0', sizeof(linea));
+		    strcpy(linea,aux);
+		    array[i]=&linea[0];
+		    aux2=strstr(aux,"GET");
+		    if(aux2!=NULL)
+		    {
+		    	strcpy(get,linea);
+		    }
+			aux3=strstr(aux,"Cookie:");
+		    if(aux3!=NULL)
+		    {
+				control=1;
+			    strcpy(cookie,linea);
+		    }
+            aux = strtok (NULL, "\r\n");
+		    i++;
+        } 
 		leido=read(descriptorFichero,buffer,BUFSIZE);
 	}
-    //fprintf (stderr,"Get: %s\n",get);
+
     char * nombreArchivo=obtenerNombre(get);
-    //fprintf (stderr,"Nombre de archivo: %s\n",nombreArchivo);
-   	sendResponse(nombreArchivo,descriptorFichero);
+	if(strcmp(nombreArchivo,"index.html")==0) 
+    {     
+
+		if(control==0)
+		{
+			sendResponse(nombreArchivo,descriptorFichero,1);
+		}
+		else
+		{
+			int cookieID=obtenerID(cookie);
+			sendResponse(nombreArchivo,descriptorFichero,cookieID+1);
+		}
+    }
+	else 
+	{
+   		sendResponse(nombreArchivo,descriptorFichero,0);
+	}
     
     
    
