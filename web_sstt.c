@@ -18,7 +18,7 @@
 #define LOG	44
 #define PROHIBIDO 403
 #define NOENCONTRADO 404
-#define TAMMAX 89056
+#define TEXPIRACION 600
 
 int bEnviados;
 int tamArchivo;
@@ -66,96 +66,151 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 	if(log_message_type == ERROR || log_message_type == NOENCONTRADO || log_message_type == PROHIBIDO) exit(3);
 }
 
-//Creamos la cabecera del mensaje de respuesta.
-char * crearCabecera(char * nombreArchivo, int id)
+/*
+Creamos la cabecera del mensaje de respuesta.
+-nombreArchivo es una cadena con el nombre del archivo que se va a enviar al cliente.
+-codigo 
+-id es un entero que se enviará como cookie al cliente, en el caso de ser un 0 no se enviará la cookie.
+*/
+char * crearCabecera(char * nombreArchivo, int codigo, int id)
 {
-	
-    //Obtenemos la fecha actual
+	//Los siguientes datos son fijos.
+    char cabecera1[BUFSIZE]= "HTTP/1.1 ";
+	char * cabecera2="\r\nDATE: ";
+    char * cabecera3="Server: Apache/2.0.52 (CentOS)\r\n";
+	char * cabecera4="Last-Modified: ";
+    char * cabecera5=" GMT\r\nETag: \"";
+	char * cabecera6="\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
+    char * cabecera7="\r\nKeep-Alive: Close\r\nContent-Type:"; 
+    char * cabecera8="; charset=ISO-8859-1\r\n";
+	char * cabecera9="Set-Cookie: access_counter:";
+
+    //Obtenemos la fecha actuals
     time_t tiempo = time(0);
     struct tm *tlocal = localtime(&tiempo);
     char fecha[128];
-    strftime(fecha,128,"%a,%d %b %Y %H:%M:%S",tlocal);
+    strftime(fecha,128,"%a,%d %b %Y %H:%M:%S GTM \r\n",tlocal);
     
-    //Obtenemos la fecha de la ultima modificación del archivo.
-    struct stat sb;
-    if (stat(nombreArchivo, &sb)== -1) {
-        perror("stat");
-        exit(EXIT_FAILURE);
-    }
-    char * aux=ctime(&sb.st_mtime);
-    char * modificado = strtok(aux,"\n");
-
-    //Obtenemos el Tamaño del archivo.
-    char tam[20];
-    sprintf(tam, "%lld", (long long) sb.st_size);
-	tamArchivo=sb.st_size;
-
-    //Obtenemos el tipo del archivo.
-    char * extension=strchr(nombreArchivo,'.');
-	int i=0;
-	int control=0;
-	while((control==0) && (i<10))
+	char * cod;
+	switch(codigo)
 	{
-		if(strcmp(extension,extensions[i].ext)==0)
-			control=1;
-		else i++;
-	}
-	if (i==10) {
-        perror("Extensión no compatible.");
-        exit(EXIT_FAILURE);
-    }
-	
-	
+		case 200:
+			cod="200 OK";
+			//Obtenemos la fecha de la ultima modificación del archivo.
+			struct stat sb;
+			if (stat(nombreArchivo, &sb)== -1) {
+				perror("stat");
+				exit(EXIT_FAILURE);
+			}
+			char * aux=ctime(&sb.st_mtime);
+			char * modificado = strtok(aux,"\n");
 
-    //Los siguientes datos son fijos.
-    char cabecera1[BUFSIZE]= "HTTP/1.1";
-	char * cabeceraOK=" 200 OK\r\nDATE :";
-	char * cabeceraPC=" 206 Partial Content\r\nDATE :";
-    char * cabecera2=" GMT \r\nServer: Apache/2.0.52 (CentOS)\r\nLast-Modified :";
-    char * cabecera3=" GMT\r\nETag: \"";
-	char * cabecera4="\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
-    char * cabecera5="\r\nKeep-Alive: Close\r\nContent-Type:"; 
-    char * cabecera6="; charset=ISO-8859-1\r\n";
-	char * cabecera7="Set-Cookie: id:";
-    
-    //Concatenamos todos los strings.
-	strcat(cabecera1,cabeceraOK);
-	strcat(cabecera1,fecha);
-	strcat(cabecera1,cabecera2);
-	strcat(cabecera1,modificado);
-	strcat(cabecera1,cabecera3);
-	strcat(cabecera1,nombreArchivo);
-	strcat(cabecera1,cabecera4);
-	strcat(cabecera1,tam);
-	strcat(cabecera1,cabecera5);
-	strcat(cabecera1,extensions[i].filetype);
-	strcat(cabecera1,cabecera6);
-	
-	
-	if(id!=0)
-	{
-	//Calculamos la fecha de expiración de la cookie y el id.
-		char fechaCookie1[128];
-		char cadenaID[20];
-		sprintf(cadenaID, "%d",id);
-		time_t tiempo2 = time(0);
-		tiempo2+=864000;				//Le suamamos los segundos de diez días.
-		struct tm *tlocal2 = localtime(&tiempo2);
-		strftime(fechaCookie1,128,"; Expires=%a,%d %b %Y %H:%M:%S GTM;\r\n\r\n",tlocal2);
-	
-		strcat(cabecera1,cabecera7);
-		strcat(cabecera1,cadenaID);
-		strcat(cabecera1,fechaCookie1);
-	}
-	else 
-		strcat(cabecera1,"\r\n");
+			//Obtenemos el Tamaño del archivo.
+			char tam[20];
+			sprintf(tam, "%lld", (long long) sb.st_size);
+			tamArchivo=sb.st_size;
 
+			//Obtenemos el tipo del archivo.
+			char * extension=strchr(nombreArchivo,'.');
+			int i=0;
+			int control=0;
+			while((control==0) && (i<10))
+			{
+				if(strcmp(extension,extensions[i].ext)==0)
+					control=1;
+				else i++;
+			}
+			if (i==10) {
+				fprintf(stderr,"Extensión no compatible.");
+				cod="400 Bad Request";
+				strcat(cabecera1,cod);
+				strcat(cabecera1,cabecera2);
+				strcat(cabecera1,fecha);
+				strcat(cabecera1,cabecera3);
+			}
+			else
+			{
+				//Concatenamos todos los strings.
+				strcat(cabecera1,cod);
+				strcat(cabecera1,cabecera2);
+				strcat(cabecera1,fecha);
+				strcat(cabecera1,cabecera3);
+				strcat(cabecera1,cabecera4);
+				strcat(cabecera1,modificado);
+				strcat(cabecera1,cabecera5);
+				strcat(cabecera1,nombreArchivo);
+				strcat(cabecera1,cabecera6);
+				strcat(cabecera1,tam);
+				strcat(cabecera1,cabecera7);
+				strcat(cabecera1,extensions[i].filetype);
+				strcat(cabecera1,cabecera8);
+	
+				if(id!=0)	//En los casos en los que haya que añadir una cookie a la cabecera:
+				{
+				//Calculamos la fecha de expiración de la cookie y el id.
+					char fechaCookie1[128];
+					char cadenaID[20];
+					sprintf(cadenaID, "%d",id);
+					time_t tiempo2 = time(0);
+					tiempo2+=TEXPIRACION;				
+					struct tm *tlocal2 = localtime(&tiempo2);
+					strftime(fechaCookie1,128,"; Expires=%a,%d %b %Y %H:%M:%S GTM;\r\n\r\n",tlocal2);
+	
+					strcat(cabecera1,cabecera9);
+					strcat(cabecera1,cadenaID);
+					strcat(cabecera1,fechaCookie1);
+				}
+				else 	//Si en la la cabecera no deseamos añadir ninguna cookie:
+					strcat(cabecera1,"\r\n");
+			}
+		break;
+		case 404:
+			cod="404 Not Found";
+			strcat(cabecera1,cod);
+			strcat(cabecera1,cabecera2);
+			strcat(cabecera1,fecha);
+			strcat(cabecera1,cabecera3);
+		break;
+		case 429:
+			cod="429 Too Many Requests";
+			strcat(cabecera1,cod);
+			strcat(cabecera1,cabecera2);
+			strcat(cabecera1,fecha);
+			strcat(cabecera1,cabecera3);
+		break;
+		default:
+			cod="418";
+			strcat(cabecera1,cod);
+			strcat(cabecera1,cabecera2);
+			strcat(cabecera1,fecha);
+			strcat(cabecera1,cabecera3);
+	}
 	char * cabeceraRespuesta=malloc(sizeof(char)*BUFSIZE);
 	strcpy(cabeceraRespuesta,&cabecera1[0]);
 	return cabeceraRespuesta;
 }
 
-//Creamos y enviamos por el socket el mensaje http response.
+void enviarCabecera(int descriptorFichero,char* cabecera)
+{
+	int buffer[BUFSIZE];
+	int escritos=write(descriptorFichero,cabecera,strlen(cabecera));
+	while(escritos<strlen(cabecera))
+	{
+		int aux=escritos/4;
+		int escritosAux=write(descriptorFichero,buffer+aux,strlen(cabecera)-escritos);
+		if(escritosAux>0)
+		{
+		 	escritos+=escritosAux;	
+		}
+	}
+}
+
+/*
+Creamos y enviamos por el socket el mensaje http response.
+-nombreArchivo es una cadena con el nombre del archivo que se va a enviar al cliente.
+-descriptorFichero es un entero con el descriptor de fichero del socket en el que deseamos escribir los datos.
+-id es un entero con el valor que queremos darle a la cookie.
+*/
 void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
 {
     int buffer[BUFSIZE];
@@ -163,65 +218,78 @@ void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
     int fd=open(nombreArchivo,O_RDONLY);
 	if(fd >= 0) 
 	{
-        char * cabeceraRespuesta=crearCabecera(nombreArchivo,id);
-		fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
-		int escritos=write(descriptorFichero,cabeceraRespuesta,strlen(cabeceraRespuesta));
-		int totalcabecera=escritos;
-		int leido=read(fd,buffer,BUFSIZE);      
-		while(leido!=0)
-		{	   
-		    escritos=write(descriptorFichero,buffer,leido);
-			if (escritos>0)
-			{
-				while(escritos<leido)
+		if(id<=5)
+		{
+		    char * cabeceraRespuesta=crearCabecera(nombreArchivo,200,id);
+			fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
+			enviarCabecera(descriptorFichero, cabeceraRespuesta);
+			int leido=read(fd,buffer,BUFSIZE);      
+			while(leido!=0)
+			{	   
+				int escritos=write(descriptorFichero,buffer,leido);
+				if (escritos>0)
 				{
-					fprintf(stderr,"Escritura parcial, leidos: %d, escritos: %d\n",leido,escritos);
-					int aux=escritos/4;
-					int escritosAux=write(descriptorFichero,buffer+aux,leido-escritos);	
-					if(escritosAux>0)
+					while(escritos<leido)
 					{
-					 	escritos+=escritosAux;	
-					}				
-				
-				} 
-				total+=escritos;
-		    	leido=read(fd,buffer,BUFSIZE);	
+						fprintf(stderr,"Escritura parcial, leidos: %d, escritos: %d\n",leido,escritos);
+						int aux=escritos/4;
+						int escritosAux=write(descriptorFichero,buffer+aux,leido-escritos);	
+						if(escritosAux>0)
+						{
+						 	escritos+=escritosAux;	
+						}						
+					} 
+					total+=escritos;
+					leido=read(fd,buffer,BUFSIZE);	
+				}			
 			}
-			
-			
+			fprintf(stderr,"Escritura completada, escritos: %d\n\n",total);
 		}
-		fprintf(stderr,"Escritura completada, escritos: %d\n\n",total);
+		else
+		{
+			char * cabeceraRespuesta=crearCabecera(nombreArchivo,429,id);
+			fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
+			enviarCabecera(descriptorFichero, cabeceraRespuesta);
+		}
 	}
 	else
 	{
 	 	perror("open");
-     	exit(EXIT_FAILURE);
+     	char * cabeceraRespuesta=crearCabecera(nombreArchivo,404,id);
+		fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
+		enviarCabecera(descriptorFichero, cabeceraRespuesta);
 	}
     close(fd);
 }
 
-//Obtenemos el nombre del archivo solicitado en el http request.
+/*
+Obtenemos el nombre del archivo solicitado en el http request.
+-cadena es la linea de la cabecera donde aparece el nombre del archivo solicitado por el cliente.
+*/
 char * obtenerNombre(char * cadena)
 {
     char buffer[BUFSIZE];
 	char * aux;
-	char * aux2;
 	strcpy(buffer,cadena);
-	aux = strtok(buffer,"/");
-	aux2 = strtok (NULL, "/");
-	if(strcmp(aux2," HTTP")==0) 
+	strtok(buffer,"/");
+	aux =strtok (NULL, "/");
+	if(strcmp(aux," HTTP")==0) 
     {
-        char * respuesta="index.html";
-        return respuesta;
+        aux="index.html";
+        return aux;
     }
 	else 
 	{
-		strcpy(buffer,aux2);
-		aux = strtok(buffer," ");
+		strcpy(buffer,aux);
+		aux =strtok(buffer," ");
         return aux;
 	}
 }
 
+/*
+Obtenemos el número de la cookie.
+-cadena es la linea en la que se encuetra el identificador de la cookie.
+*/
 int obtenerID(char * cadena)
 {
 	char buffer[BUFSIZE];
@@ -249,14 +317,16 @@ void process_web_request(int descriptorFichero)
     int g=0;
     char* array[10];
 	int control=0;
+
 	int flags=fcntl(descriptorFichero, F_GETFL, 0);
 	fcntl(descriptorFichero, F_SETFL, flags|O_NONBLOCK);
+
     int leido=read(descriptorFichero,buffer,BUFSIZE);
 	while(leido<=0)
         leido=read(descriptorFichero,buffer,BUFSIZE);    
 	while((leido>0))
 	{
-        fprintf (stderr,"Hemos leido:\n %s", buffer);
+        fprintf (stderr,"Hemos leido:\n%s", buffer);
 
         aux = strtok(buffer,"\r\n");
 	    while (aux != NULL)
@@ -284,7 +354,6 @@ void process_web_request(int descriptorFichero)
     char * nombreArchivo=obtenerNombre(get);
 	if(strcmp(nombreArchivo,"index.html")==0) 
     {     
-
 		if(control==0)
 		{
 			sendResponse(nombreArchivo,descriptorFichero,1);
