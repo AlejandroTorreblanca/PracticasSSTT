@@ -90,7 +90,7 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
     struct tm *tlocal = localtime(&tiempo);
     char fecha[128];
     strftime(fecha,128,"%a,%d %b %Y %H:%M:%S GTM \r\n",tlocal);
-    
+    char * cabeceraAux;
 	char * cod;
 	switch(codigo)
 	{
@@ -111,7 +111,8 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 			tamArchivo=sb.st_size;
 
 			//Obtenemos el tipo del archivo.
-			char * extension=strchr(nombreArchivo,'.');
+			char * extension=strchr(nombreArchivo,'/');
+            extension=strchr(extension,'.');
 			int i=0;
 			int control=0;
 			while((control==0) && (i<10))
@@ -120,13 +121,15 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 					control=1;
 				else i++;
 			}
-			if (i==10) {
-				fprintf(stderr,"Extensión no compatible.");
+			if (i==10) { //La extensión del archivo no esta soportada por el servidor.
+            //Esta comprobación también nos sirve para no permitir accesos fuera del directorio.
 				cod="400 Bad Request";
+                cabeceraAux="Content-Length: 86\r\nKeep-Alive: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>400 BAD REQUEST</H1></BODY></HTML>";
 				strcat(cabecera1,cod);
 				strcat(cabecera1,cabecera2);
 				strcat(cabecera1,fecha);
 				strcat(cabecera1,cabecera3);
+				strcat(cabecera1,cabeceraAux);
 			}
 			else
 			{
@@ -166,17 +169,21 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 		break;
 		case 404:
 			cod="404 Not Found";
+            cabeceraAux="Content-Length: 84\r\nKeep-Alive: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>404 NOT FOUND</H1></BODY></HTML>";
 			strcat(cabecera1,cod);
 			strcat(cabecera1,cabecera2);
 			strcat(cabecera1,fecha);
 			strcat(cabecera1,cabecera3);
+			strcat(cabecera1,cabeceraAux);
 		break;
 		case 429:
 			cod="429 Too Many Requests";
+            cabeceraAux="Content-Length: 92\r\nKeep-Alive: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>429 TOO MANY REQUESTS</H1></BODY></HTML>";
 			strcat(cabecera1,cod);
 			strcat(cabecera1,cabecera2);
 			strcat(cabecera1,fecha);
 			strcat(cabecera1,cabecera3);
+			strcat(cabecera1,cabeceraAux);
 		break;
 		default:
 			cod="418";
@@ -192,12 +199,11 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 
 void enviarCabecera(int descriptorFichero,char* cabecera)
 {
-	int buffer[BUFSIZE];
 	int escritos=write(descriptorFichero,cabecera,strlen(cabecera));
 	while(escritos<strlen(cabecera))
 	{
 		int aux=escritos/4;
-		int escritosAux=write(descriptorFichero,buffer+aux,strlen(cabecera)-escritos);
+		int escritosAux=write(descriptorFichero,cabecera+aux,strlen(cabecera)-escritos);
 		if(escritosAux>0)
 		{
 		 	escritos+=escritosAux;	
@@ -218,7 +224,7 @@ void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
     int fd=open(nombreArchivo,O_RDONLY);
 	if(fd >= 0) 
 	{
-		if(id<=5)
+		if(id<=5) //Si el ID de la cookie es menor que 5 enviamos los datos.
 		{
 		    char * cabeceraRespuesta=crearCabecera(nombreArchivo,200,id);
 			fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
@@ -245,14 +251,14 @@ void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
 			}
 			fprintf(stderr,"Escritura completada, escritos: %d\n\n",total);
 		}
-		else
+		else //En otro caso enviamos un mensaje de error 429.
 		{
 			char * cabeceraRespuesta=crearCabecera(nombreArchivo,429,id);
 			fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
 			enviarCabecera(descriptorFichero, cabeceraRespuesta);
 		}
 	}
-	else
+	else //Si no podemos abrir el fichero correctamente enviamos un error 404.
 	{
 	 	perror("open");
      	char * cabeceraRespuesta=crearCabecera(nombreArchivo,404,id);
@@ -271,18 +277,19 @@ char * obtenerNombre(char * cadena)
     char buffer[BUFSIZE];
 	char * aux;
 	strcpy(buffer,cadena);
-	strtok(buffer,"/");
-	aux =strtok (NULL, "/");
-	if(strcmp(aux," HTTP")==0) 
+	strtok(buffer," ");
+	aux =strtok (NULL, " ");
+	if(strcmp(aux,"/")==0) 
     {
-        aux="index.html";
-        return aux;
+		return "./index.html";
     }
 	else 
 	{
-		strcpy(buffer,aux);
-		aux =strtok(buffer," ");
-        return aux;
+		strcpy(buffer,".");
+		strcat(buffer,aux);
+		char * salida=malloc(sizeof(char)*BUFSIZE);
+		strcpy(salida,&buffer[0]);
+		return salida;
 	}
 }
 
@@ -304,7 +311,6 @@ int obtenerID(char * cadena)
 void process_web_request(int descriptorFichero)
 {
 	debug(LOG,"request","Ha llegado una peticion",descriptorFichero);
-    fprintf (stderr,"LLega un nuevo mensaje por un socket\n");
 	char buffer[BUFSIZE];
 	char linea[1024];
 	char get[1024];
@@ -352,7 +358,7 @@ void process_web_request(int descriptorFichero)
 	}
 
     char * nombreArchivo=obtenerNombre(get);
-	if(strcmp(nombreArchivo,"index.html")==0) 
+	if(strcmp(nombreArchivo,"./index.html")==0) 
     {     
 		if(control==0)
 		{
