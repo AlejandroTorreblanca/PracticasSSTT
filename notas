@@ -5,8 +5,10 @@ scp web_sstt.c alejandro@192.168.1.53:/home/alejandro 	pc -> virtual
 scp alumno@192.168.56.102:/home/alumno/web_sstt.c 	virtual -> pc
 
 
-http://192.168.56.102:9001/
-
 
 dudas:
-error write: Resource temporarily unavailable, tratamiento?
+-error write: Resource temporarily unavailable, tratamiento?
+-control en el arbol de directorios, puedo aceptar solo rutas relativas y que no contengan ningún directorio .. o . ? no acepta directorios con nombres con .
+-cuando enviar coockie.
+
+

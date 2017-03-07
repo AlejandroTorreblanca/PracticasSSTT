@@ -20,7 +20,6 @@
 #define NOENCONTRADO 404
 #define TEXPIRACION 600
 
-int bEnviados;
 int tamArchivo;
 
 struct {
@@ -69,7 +68,7 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 /*
 Creamos la cabecera del mensaje de respuesta.
 -nombreArchivo es una cadena con el nombre del archivo que se va a enviar al cliente.
--codigo 
+-codigo es el tipo de mensaje HTTP que queremos enviar en la cabecera que estamos creando.
 -id es un entero que se enviará como cookie al cliente, en el caso de ser un 0 no se enviará la cookie.
 */
 char * crearCabecera(char * nombreArchivo, int codigo, int id)
@@ -81,15 +80,15 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 	char * cabecera4="Last-Modified: ";
     char * cabecera5=" GMT\r\nETag: \"";
 	char * cabecera6="\"\r\nAccept-Ranges: bytes\r\nContent-Length: ";
-    char * cabecera7="\r\nKeep-Alive: Close\r\nContent-Type:"; 
+    char * cabecera7="\r\nConnection: Close\r\nContent-Type:"; 
     char * cabecera8="; charset=ISO-8859-1\r\n";
-	char * cabecera9="Set-Cookie: access_counter:";
+	char * cabecera9="Set-Cookie: access_counter=";
 
-    //Obtenemos la fecha actuals
+    //Obtenemos la fecha actual
     time_t tiempo = time(0);
     struct tm *tlocal = localtime(&tiempo);
     char fecha[128];
-    strftime(fecha,128,"%a,%d %b %Y %H:%M:%S GTM \r\n",tlocal);
+    strftime(fecha,128,"%a,%d %b %Y %H:%M:%S GMT \r\n",tlocal);
     char * cabeceraAux;
 	char * cod;
 	switch(codigo)
@@ -112,7 +111,9 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 
 			//Obtenemos el tipo del archivo.
 			char * extension=strchr(nombreArchivo,'/');
-            extension=strchr(extension,'.');
+			if(extension!=NULL)
+				extension=strchr(extension,'.');
+			else  extension=strchr(nombreArchivo,'.');
 			int i=0;
 			int control=0;
 			while((control==0) && (i<10))
@@ -124,7 +125,7 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 			if (i==10) { //La extensión del archivo no esta soportada por el servidor.
             //Esta comprobación también nos sirve para no permitir accesos fuera del directorio.
 				cod="400 Bad Request";
-                cabeceraAux="Content-Length: 86\r\nKeep-Alive: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>400 BAD REQUEST</H1></BODY></HTML>";
+                cabeceraAux="Content-Length: 86\r\nConnection: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>400 BAD REQUEST</H1></BODY></HTML>";
 				strcat(cabecera1,cod);
 				strcat(cabecera1,cabecera2);
 				strcat(cabecera1,fecha);
@@ -157,7 +158,7 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 					time_t tiempo2 = time(0);
 					tiempo2+=TEXPIRACION;				
 					struct tm *tlocal2 = localtime(&tiempo2);
-					strftime(fechaCookie1,128,"; Expires=%a,%d %b %Y %H:%M:%S GTM;\r\n\r\n",tlocal2);
+					strftime(fechaCookie1,128,"; Expires=%a,%d %b %Y %H:%M:%S GMT;\r\n\r\n",tlocal2);
 	
 					strcat(cabecera1,cabecera9);
 					strcat(cabecera1,cadenaID);
@@ -169,7 +170,7 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 		break;
 		case 404:
 			cod="404 Not Found";
-            cabeceraAux="Content-Length: 84\r\nKeep-Alive: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>404 NOT FOUND</H1></BODY></HTML>";
+            cabeceraAux="Content-Length: 84\r\nConnection: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>404 NOT FOUND</H1></BODY></HTML>";
 			strcat(cabecera1,cod);
 			strcat(cabecera1,cabecera2);
 			strcat(cabecera1,fecha);
@@ -178,7 +179,7 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 		break;
 		case 429:
 			cod="429 Too Many Requests";
-            cabeceraAux="Content-Length: 92\r\nKeep-Alive: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>429 TOO MANY REQUESTS</H1></BODY></HTML>";
+            cabeceraAux="Content-Length: 92\r\nConnection: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>429 TOO MANY REQUESTS</H1></BODY></HTML>";
 			strcat(cabecera1,cod);
 			strcat(cabecera1,cabecera2);
 			strcat(cabecera1,fecha);
@@ -197,7 +198,12 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 	return cabeceraRespuesta;
 }
 
-void enviarCabecera(int descriptorFichero,char* cabecera)
+/*
+Enviamos el string introducido por el socket que se pasa como parámetro.
+-descriptorFichero descriptor de fichero del socket por el que se desea enviar el mensaje.
+-cabecera es el mensaje que se desea enviar.
+*/
+void enviarCabecera(int descriptorFichero, char * cabecera)
 {
 	int escritos=write(descriptorFichero,cabecera,strlen(cabecera));
 	while(escritos<strlen(cabecera))
@@ -237,7 +243,7 @@ void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
 				{
 					while(escritos<leido)
 					{
-						fprintf(stderr,"Escritura parcial, leidos: %d, escritos: %d\n",leido,escritos);
+						//fprintf(stderr,"Escritura parcial, leidos: %d, escritos: %d\n",leido,escritos);
 						int aux=escritos/4;
 						int escritosAux=write(descriptorFichero,buffer+aux,leido-escritos);	
 						if(escritosAux>0)
@@ -303,8 +309,8 @@ int obtenerID(char * cadena)
 	char * aux;
 	strcpy(buffer,cadena);
 	strtok(buffer,":");
-	strtok (NULL, ":");
-	aux= strtok (NULL, ":");
+	strtok (NULL, "=");
+	aux= strtok (NULL, "=");
 	return atoi(aux);
 }
 

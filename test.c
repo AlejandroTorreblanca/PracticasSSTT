@@ -25,20 +25,23 @@ struct {
 	{".html","text/html" },
 	{0,0} };
 
+int obtenerID(char * cadena)
+{
+	char buffer[BUFSIZE];
+	char * aux;
+	strcpy(buffer,cadena);
+	strtok(buffer,":");
+	strtok (NULL, "=");
+	aux= strtok (NULL, "=");
+	return atoi(aux);
+}
 
 main(){
 	
-	char * cadena="Cookie: id:1";
-	char buffer[BUFSIZE];
-	char * aux;
-	char * aux2;
-	strcpy(buffer,cadena);
-	strtok(buffer,":");
-	strtok (NULL, ":");
-	aux2 = strtok (NULL, ":");
-	int c = atoi(aux2);
+	char* nombreArchivo="Cookie: access_counter=3";
 	
-	fprintf(stderr,"cookie: %d\n",c);
+	int n =obtenerID(nombreArchivo);
+	fprintf(stderr,"res: %d\n",n);
 	return 0;
 }
 
