@@ -38,10 +38,9 @@ int obtenerID(char * cadena)
 
 main(){
 	
-	char* nombreArchivo="Cookie: access_counter=3";
-	
-	int n =obtenerID(nombreArchivo);
-	fprintf(stderr,"res: %d\n",n);
+	char* nombreArchivo="<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>429 INTERNAL SERVER ERROR</H1></BODY></HTML>";
+	int m=strlen(nombreArchivo);
+	fprintf(stderr,"res: %d\n",m);
 	return 0;
 }
 

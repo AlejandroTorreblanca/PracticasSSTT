@@ -68,7 +68,7 @@ void debug(int log_message_type, char *message, char *additional_info, int socke
 /*
 Creamos la cabecera del mensaje de respuesta.
 -nombreArchivo es una cadena con el nombre del archivo que se va a enviar al cliente.
--codigo es el tipo de mensaje HTTP que queremos enviar en la cabecera que estamos creando.
+-codigo es el tipo de mensaje HTTP que queremos enviar mediante la cabecera que estamos creando.
 -id es un entero que se enviará como cookie al cliente, en el caso de ser un 0 no se enviará la cookie.
 */
 char * crearCabecera(char * nombreArchivo, int codigo, int id)
@@ -91,6 +91,7 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
     strftime(fecha,128,"%a,%d %b %Y %H:%M:%S GMT \r\n",tlocal);
     char * cabeceraAux;
 	char * cod;
+    int error=0;
 	switch(codigo)
 	{
 		case 200:
@@ -99,10 +100,14 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 			struct stat sb;
 			if (stat(nombreArchivo, &sb)== -1) {
 				perror("stat");
-				exit(EXIT_FAILURE);
+				error=1;
 			}
 			char * aux=ctime(&sb.st_mtime);
-			char * modificado = strtok(aux,"\n");
+            char * modificado;
+            if (aux!=NULL)
+			    modificado = strtok(aux,"\n");
+            else
+                error=1;
 
 			//Obtenemos el Tamaño del archivo.
 			char tam[20];
@@ -110,20 +115,28 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 			tamArchivo=sb.st_size;
 
 			//Obtenemos el tipo del archivo.
-			char * extension=strchr(nombreArchivo,'/');
-			if(extension!=NULL)
-				extension=strchr(extension,'.');
-			else  extension=strchr(nombreArchivo,'.');
-			int i=0;
-			int control=0;
-			while((control==0) && (i<10))
-			{
-				if(strcmp(extension,extensions[i].ext)==0)
-					control=1;
-				else i++;
-			}
-			if (i==10) { //La extensión del archivo no esta soportada por el servidor.
-            //Esta comprobación también nos sirve para no permitir accesos fuera del directorio.
+            int rutaIncorrecta=0;
+            int i=0;
+            char *aux2=strstr(nombreArchivo,".."); 
+	        if(aux2==NULL) 
+            {   //La ruta del archivo no contiene "..".
+			    char * extension=strchr(nombreArchivo,'/');
+			    if(extension!=NULL)
+				    extension=strchr(extension,'.');
+			    else  extension=strchr(nombreArchivo,'.');
+			    int control=0;
+			    while((control==0) && (i<10))
+			    {
+				    if(strcmp(extension,extensions[i].ext)==0)
+					    control=1;
+				    else i++;
+			    }
+            }
+            else
+               rutaIncorrecta=1; 
+			if (i==10 || (rutaIncorrecta==1)) 
+            { 
+            //La extensión o la ruta del archivo no esta soportada por el servidor.
 				cod="400 Bad Request";
                 cabeceraAux="Content-Length: 86\r\nConnection: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>400 BAD REQUEST</H1></BODY></HTML>";
 				strcat(cabecera1,cod);
@@ -158,8 +171,10 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 					time_t tiempo2 = time(0);
 					tiempo2+=TEXPIRACION;				
 					struct tm *tlocal2 = localtime(&tiempo2);
-					strftime(fechaCookie1,128,"; Expires=%a,%d %b %Y %H:%M:%S GMT;\r\n\r\n",tlocal2);
-	
+                    if(tlocal2!=NULL)
+					    strftime(fechaCookie1,128,"; Expires=%a,%d %b %Y %H:%M:%S GMT;\r\n\r\n",tlocal2);
+	                else
+                        error=1;
 					strcat(cabecera1,cabecera9);
 					strcat(cabecera1,cadenaID);
 					strcat(cabecera1,fechaCookie1);
@@ -186,16 +201,30 @@ char * crearCabecera(char * nombreArchivo, int codigo, int id)
 			strcat(cabecera1,cabecera3);
 			strcat(cabecera1,cabeceraAux);
 		break;
+        case 500:
+            cod="500 Internal Server Error";
+            cabeceraAux="Content-Length: 96\r\nConnection: Close\r\nContent-Type: text/html\r\ncharset=ISO-8859-1\r\n\r\n<HTML><HEAD><TITLE>web_SSTT</TITLE></HEAD><BODY><H1>429 INTERNAL SERVER ERROR</H1></BODY></HTML>";
+			strcat(cabecera1,cod);
+			strcat(cabecera1,cabecera2);
+			strcat(cabecera1,fecha);
+			strcat(cabecera1,cabecera3);
+			strcat(cabecera1,cabeceraAux);
 		default:
-			cod="418";
+            //No deberia llegar aqui, salvo fallo del programador.
+			cod="418 I'm a teapot";
 			strcat(cabecera1,cod);
 			strcat(cabecera1,cabecera2);
 			strcat(cabecera1,fecha);
 			strcat(cabecera1,cabecera3);
 	}
-	char * cabeceraRespuesta=malloc(sizeof(char)*BUFSIZE);
-	strcpy(cabeceraRespuesta,&cabecera1[0]);
-	return cabeceraRespuesta;
+    if(error!=1)
+    {
+	    char * cabeceraRespuesta=malloc(sizeof(char)*BUFSIZE);
+	    strcpy(cabeceraRespuesta,&cabecera1[0]);
+	    return cabeceraRespuesta;
+    }
+    else
+        return NULL;
 }
 
 /*
@@ -211,9 +240,7 @@ void enviarCabecera(int descriptorFichero, char * cabecera)
 		int aux=escritos/4;
 		int escritosAux=write(descriptorFichero,cabecera+aux,strlen(cabecera)-escritos);
 		if(escritosAux>0)
-		{
 		 	escritos+=escritosAux;	
-		}
 	}
 }
 
@@ -233,31 +260,53 @@ void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
 		if(id<=5) //Si el ID de la cookie es menor que 5 enviamos los datos.
 		{
 		    char * cabeceraRespuesta=crearCabecera(nombreArchivo,200,id);
-			fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
-			enviarCabecera(descriptorFichero, cabeceraRespuesta);
-			int leido=read(fd,buffer,BUFSIZE);      
-			while(leido!=0)
-			{	   
-				int escritos=write(descriptorFichero,buffer,leido);
-				if (escritos>0)
-				{
-					while(escritos<leido)
+            if(cabeceraRespuesta!=NULL)
+            {
+			    fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
+			    enviarCabecera(descriptorFichero, cabeceraRespuesta);
+                int control=0;
+			    int bytesLeidos=read(fd,buffer,BUFSIZE);      
+			    while(bytesLeidos>0)
+			    {	   
+				    int bytesEscritos=write(descriptorFichero,buffer,bytesLeidos);
+					while((bytesEscritos<bytesLeidos) && (control<50))
 					{
-						//fprintf(stderr,"Escritura parcial, leidos: %d, escritos: %d\n",leido,escritos);
-						int aux=escritos/4;
-						int escritosAux=write(descriptorFichero,buffer+aux,leido-escritos);	
-						if(escritosAux>0)
-						{
-						 	escritos+=escritosAux;	
-						}						
-					} 
-					total+=escritos;
-					leido=read(fd,buffer,BUFSIZE);	
-				}			
-			}
-			fprintf(stderr,"Escritura completada, escritos: %d\n\n",total);
+                        if (bytesEscritos==-1)
+                            control++;
+                        else
+                        {
+                            control=0;
+					        int aux=bytesEscritos/4;
+					        int escritosAux=write(descriptorFichero,buffer+aux,bytesLeidos-bytesEscritos);	
+					        if(escritosAux>0)
+                            {
+					         	bytesEscritos+=escritosAux;	
+                                control=0;
+                            }
+                            else
+                                control++;
+                        }
+				    } 
+				    total+=bytesEscritos;
+				    bytesLeidos=read(fd,buffer,BUFSIZE);
+			    }
+                if((bytesLeidos==-1) || (control==50)) //Si ha habido un error al enviar o leer los datos.
+                {
+                    char * cabeceraRespuesta=crearCabecera(nombreArchivo,500,id);
+		            fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
+		            enviarCabecera(descriptorFichero, cabeceraRespuesta);
+                }
+                else
+			        fprintf(stderr,"Escritura completada, bytesEscritos: %d\n\n",total);
+            }
+            else //Si ha habido algun error al crear la cabecera.
+            {
+                char * cabeceraRespuesta=crearCabecera(nombreArchivo,500,id);
+		        fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
+		        enviarCabecera(descriptorFichero, cabeceraRespuesta);
+            }
 		}
-		else //En otro caso enviamos un mensaje de error 429.
+		else //si ID>5.
 		{
 			char * cabeceraRespuesta=crearCabecera(nombreArchivo,429,id);
 			fprintf(stderr,"\n\n**********\ncabecera: \n%s\n**********\n",cabeceraRespuesta);
@@ -276,7 +325,7 @@ void sendResponse(char * nombreArchivo, int descriptorFichero, int id)
 
 /*
 Obtenemos el nombre del archivo solicitado en el http request.
--cadena es la linea de la cabecera donde aparece el nombre del archivo solicitado por el cliente.
+-cadena es la línea de la cabecera donde aparece el nombre del archivo solicitado por el cliente.
 */
 char * obtenerNombre(char * cadena)
 {
@@ -301,7 +350,7 @@ char * obtenerNombre(char * cadena)
 
 /*
 Obtenemos el número de la cookie.
--cadena es la linea en la que se encuetra el identificador de la cookie.
+-cadena es la línea en la que se encuetra el identificador de la cookie.
 */
 int obtenerID(char * cadena)
 {
@@ -324,28 +373,26 @@ void process_web_request(int descriptorFichero)
 	char * aux;
 	char * aux2;
 	char * aux3;
-	int posicion;
-	int i=0;
-    int g=0;
-    char* array[10];
 	int control=0;
+    int m=0;
 
 	int flags=fcntl(descriptorFichero, F_GETFL, 0);
 	fcntl(descriptorFichero, F_SETFL, flags|O_NONBLOCK);
 
-    int leido=read(descriptorFichero,buffer,BUFSIZE);
-	while(leido<=0)
-        leido=read(descriptorFichero,buffer,BUFSIZE);    
-	while((leido>0))
+    int bytesLeidos=read(descriptorFichero,buffer,BUFSIZE);
+	while(bytesLeidos<=0)
+    {
+        m++;
+        bytesLeidos=read(descriptorFichero,buffer,BUFSIZE);   
+    } 
+	while(bytesLeidos>0)
 	{
         fprintf (stderr,"Hemos leido:\n%s", buffer);
-
         aux = strtok(buffer,"\r\n");
 	    while (aux != NULL)
         {
 			memset(linea, '\0', sizeof(linea));
 		    strcpy(linea,aux);
-		    array[i]=&linea[0];
 		    aux2=strstr(aux,"GET");
 		    if(aux2!=NULL)
 		    {
@@ -358,18 +405,15 @@ void process_web_request(int descriptorFichero)
 			    strcpy(cookie,linea);
 		    }
             aux = strtok (NULL, "\r\n");
-		    i++;
         } 
-		leido=read(descriptorFichero,buffer,BUFSIZE);
+		bytesLeidos=read(descriptorFichero,buffer,BUFSIZE);
 	}
 
     char * nombreArchivo=obtenerNombre(get);
 	if(strcmp(nombreArchivo,"./index.html")==0) 
     {     
 		if(control==0)
-		{
 			sendResponse(nombreArchivo,descriptorFichero,1);
-		}
 		else
 		{
 			int cookieID=obtenerID(cookie);
@@ -377,68 +421,8 @@ void process_web_request(int descriptorFichero)
 		}
     }
 	else 
-	{
    		sendResponse(nombreArchivo,descriptorFichero,0);
-	}
     
-    
-   
-	
-	//
-	// Definir buffer y variables necesarias para leer las peticiones
-	//
-	
-	
-	//
-	// Leer la petición HTTP
-	//
-	
-	
-	//
-	// Comprobación de errores de lectura
-	//
-	
-	
-	//
-	// Si la lectura tiene datos válidos terminar el buffer con un \0
-	//
-	
-	
-	//
-	// Se eliminan los caracteres de retorno de carro y nueva linea
-	//
-	
-	
-	//
-	//	TRATAR LOS CASOS DE LOS DIFERENTES METODOS QUE SE USAN
-	//	(Se soporta solo GET)
-	//
-	
-	
-	//
-	//	Como se trata el caso de acceso ilegal a directorios superiores de la
-	//	jerarquia de directorios
-	//	del sistema
-	//
-	
-	
-	//
-	//	Como se trata el caso excepcional de la URL que no apunta a ningún fichero
-	//	html
-	//
-	
-	
-	//
-	//	Evaluar el tipo de fichero que se está solicitando, y actuar en
-	//	consecuencia devolviendolo si se soporta u devolviendo el error correspondiente en otro caso
-	//
-	
-	
-	//
-	//	En caso de que el fichero sea soportado, exista, etc. se envia el fichero con la cabecera
-	//	correspondiente, y el envio del fichero se hace en blockes de un máximo de  8kB
-	//
-	
 	close(descriptorFichero);
 	exit(1);
 }
@@ -450,21 +434,11 @@ int main(int argc, char **argv)
 	static struct sockaddr_in cli_addr;		// static = Inicializado con ceros
 	static struct sockaddr_in serv_addr;	// static = Inicializado con ceros
 	
-	//  Argumentos que se esperan:
-	//
-	//	argv[1]
-	//	En el primer argumento del programa se espera el puerto en el que el servidor escuchara
-	//
-	//  argv[2]
-	//  En el segundo argumento del programa se espera el directorio en el que se encuentran los ficheros del servidor
-	//
-	//  Verficiar que los argumentos que se pasan al iniciar el programa son los esperados
-	//
-
-	//
-	//  Verficiar que el directorio escogido es apto. Que no es un directorio del sistema y que se tienen
-	//  permisos para ser usado
-	//
+    if(argc!=3)
+    {
+        fprintf(stderr,"ERROR: Se deben pasar dos argumentos como parámetros.\n");
+        exit(4);
+    }
 
 	if(chdir(argv[2]) == -1){ 
 		(void)printf("ERROR: No se puede cambiar de directorio %s\n",argv[2]);
